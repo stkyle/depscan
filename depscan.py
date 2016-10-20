@@ -37,7 +37,11 @@ class DependencyScanner(object):
     @property
     def target(self):
         if isinstance(self._target, StringTypes) and os.path.isfile(self._target):
-            return self._target
+            dirname, filename = os.path.split(self._target)
+            script_txt = 'import sys;sys.path.append(\\"{}\\");'.format(dirname)
+            script_txt += 'import {}'.format(os.path.splitext(filename)[0])
+            target = '-c "{}"'.format(script_txt)
+            return target
         elif isinstance(self._target, ModuleType):
             return self._target.__file__
         else:
@@ -63,7 +67,7 @@ class DependencyScanner(object):
         
         baseline=open(tempfile.NamedTemporaryFile().name,'wb')
         try:
-            cmd = ' '.join([sys.executable, '-vc ""'])
+            cmd = ' '.join([sys.executable, '-v -c ""'])
             retcode = call(cmd, shell=True, stdout=stdout, stderr=baseline)
         except:
             pass
@@ -132,16 +136,15 @@ if __name__ == '__main__':
     depscan = DependencyScanner(target)
     depscan.scan()
     
-    print_title('Dependencies')
+    print_title('Dependencies [{}]'.format(str(len(depscan.dependencies.keys()))))
     for k in sorted(depscan.dependencies.keys()):
         print('  {:50}    {}'.format(k,depscan.dependencies[k]))
 
-    print_title('Builtins')
+    print_title('Builtins [{}]'.format(str(len(depscan.builtins.keys()))))
     for k in sorted(depscan.builtins.keys()):
         print('  {:50}    {}'.format(k,depscan.builtins[k]))
     
-    print_title('Baseline Imports')
+    print_title('Baseline Imports [{}]'.format(str(len(depscan.baseline.keys()))))
     for k in sorted(depscan.baseline.keys()):
         print('  {:50}    {}'.format(k,depscan.baseline[k]))
     
-              
