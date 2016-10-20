@@ -1,30 +1,133 @@
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-Created on Wed Oct 19 19:51:01 2016
+This module provides functions to scan python source files for dependencies.
 
 @author: steve
 """
 import sys
 import os
-from subprocess import call
+import ast
 import tempfile
+from subprocess import call
 from types import ModuleType
 from types import StringTypes
 
 
-from collections import namedtuple
-
-
 class Dependency:
+    """A Dependency can be a python package or module
+    
+    Args:
+        name (): module or package name
+        deptype (): the type of dependency
+        origin (): where this dependency may be found locally
+    """
     def __init__(self, name, deptype=None, origin=None):
         self.name = name
         self.type = deptype
         self.origin = origin
         
-        
+class Visitor(ast.NodeVisitor):
+    """Base Class for Abstract Syntax Tree Traversal"""
+
+    def __init__(self):
+        self._data = []
+        self.nodes=[]
+
+    def add(self, datum):
+        self._data.append(datum)
+
+    @property
+    def data(self):
+        return self._data
+
+    def visit(self, node):
+        super(Visitor, self).visit(node)
+        return self
+
+
+class FuncLister(Visitor):
+    """Traverse Abstract Syntax Tree and extract function definitions"""
+
+    def visit_FunctionDef(self, node):
+        self.nodes.append(node)
+        self.add(node.name)
+        self.generic_visit(node)
+
+class KeywordLister(Visitor):
+    """Traverse Abstract Syntax Tree and extract function definitions"""
+
+    def visit_keyword(self, node):
+        self.nodes.append(node)
+        self.add(node.arg)
+        self.generic_visit(node)
+
+class ClassLister(Visitor):
+    """Traverse Abstract Syntax Tree and extract class definitions"""
+    def visit_ClassDef(self, node):
+        self.add(node.name)
+        self.nodes.append(node)
+        self.generic_visit(node)
+
+
+class ImportLister(Visitor):
+    """Traverse Abstract Syntax Tree and extract import items"""
+
+    def visit_Import(self, node):
+        for name in node.names:
+            self.add(name.name)
+        self.generic_visit(node)
+
+    def visit_ImportFrom(self, node):
+        module_name = node.module
+        self.add(module_name)
+        self.generic_visit(node)
+
+
+def get_ast(source_or_file):
+    """returns an abstract syntax tree (ast) object"""
+    source = source_or_file
+    filename = '<unknown>'
+    source_type = type(source_or_file)
+
+    if source_type in StringTypes:
+        if os.path.isfile(source):
+            filename = source
+            source = open(source_or_file, 'rb').read()
+
+    return ast.parse(source, filename, mode='exec')
+
+
+def get_functions(source_or_file, prop='data'):
+    """extract function names and return as list"""
+    tree = get_ast(source_or_file)
+    lister = FuncLister().visit(tree)
+    return getattr(lister, prop)
+
+
+def get_classes(source_or_file, prop='data'):
+    """extract class names and return as list"""
+    tree = get_ast(source_or_file)
+    lister = ClassLister().visit(tree)
+    return getattr(lister, prop)
+
+
+def get_imports(source_or_file):
+    """extract imports and return as list"""
+    tree = get_ast(source_or_file)
+    lister = ImportLister().visit(tree)
+    return lister.data
+
+def get_keywords(source_or_file):
+    """extract imports and return as list"""
+    tree = get_ast(source_or_file)
+    lister = KeywordLister().visit(tree)
+    return lister.data
+
+
 class DependencyScanner(object):
     """
-    target (str, module)
+    target (str|module): the item under test
     """
     def __init__(self, target):
         self._target = target.strip()
@@ -121,9 +224,6 @@ def print_title(name, width=80):
     title = ''.join(['{:^',str(width), '}'])
     print(title.format(name))
     print('='*width)
-
-
-baseline_cmd = 'python -vc ""'
 
 
 if __name__ == '__main__':
