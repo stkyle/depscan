@@ -27,11 +27,12 @@ class DependencyScanner(object):
     target (str, module)
     """
     def __init__(self, target):
-        self._target = target
+        self._target = target.strip()
         self.builtins = {}
         self.dependencies = {}
         self.libs = {}
         self.deps = []
+        self.baseline = {}
     
     @property
     def target(self):
@@ -41,16 +42,17 @@ class DependencyScanner(object):
             return self._target.__file__
         else:
             try:
+                
                 oldstdout = sys.stdout
                 oldstderr = sys.stderr
                 sys.stdout = None
                 sys.stderr = None
-                mod = __import__(self._target)
-                return mod.__file__
+                __import__(self._target.strip())
+                return '-c "import {}"'.format(self._target)
             except ImportError:
                 raise
             except AttributeError:
-                return '-c import {}'.format(self._target)
+                return '-c "import {}"'.format(self._target)
             finally:
                 sys.stdout = oldstdout
                 sys.stderr = oldstderr
@@ -58,6 +60,14 @@ class DependencyScanner(object):
     def scan(self):
         stdout=open(tempfile.NamedTemporaryFile().name,'wb')
         stderr=open(tempfile.NamedTemporaryFile().name,'wb')
+        
+        baseline=open(tempfile.NamedTemporaryFile().name,'wb')
+        try:
+            cmd = ' '.join([sys.executable, '-vc ""'])
+            retcode = call(cmd, shell=True, stdout=stdout, stderr=baseline)
+        except:
+            pass
+        
         try:
             cmd = ' '.join([sys.executable, '-v', self.target])
             retcode = call(cmd, shell=True, stdout=stdout, stderr=stderr)
@@ -70,6 +80,15 @@ class DependencyScanner(object):
 
         stdout.close()
         stderr.close()
+        baseline.close()
+        
+        with open(baseline.name,'rb') as base:
+            for line in base:
+                #line = stderr.readline()
+                if line.startswith('import'):
+                    #print(line.strip())
+                    _name, pedigree = line.strip().split(' ',1)[1].split('#')
+                    self.baseline[_name] = pedigree
         
         with open(stderr.name,'rb') as stderr:
             for line in stderr:
@@ -85,9 +104,9 @@ class DependencyScanner(object):
                     if len(pedigree)>1:
                         dep.origin = pedigree[1].strip()
 
-                    if dep.type and 'builtin' in dep.type:
+                    if 'builtin' in dep.type and _name not in self.baseline:
                         self.builtins[_name] = dep.origin
-                    else:
+                    elif _name not in self.baseline:
                         self.dependencies[_name] = dep.origin
                     
                     self.deps.append(dep)
@@ -98,6 +117,9 @@ def print_title(name, width=80):
     title = ''.join(['{:^',str(width), '}'])
     print(title.format(name))
     print('='*width)
+
+
+baseline_cmd = 'python -vc ""'
 
 
 if __name__ == '__main__':
@@ -118,3 +140,8 @@ if __name__ == '__main__':
     for k in sorted(depscan.builtins.keys()):
         print('  {:50}    {}'.format(k,depscan.builtins[k]))
     
+    print_title('Baseline Imports')
+    for k in sorted(depscan.baseline.keys()):
+        print('  {:50}    {}'.format(k,depscan.baseline[k]))
+    
+              
