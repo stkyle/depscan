@@ -12,7 +12,16 @@ from types import ModuleType
 from types import StringTypes
 
 
+from collections import namedtuple
 
+
+class Dependency:
+    def __init__(self, name, deptype=None, origin=None):
+        self.name = name
+        self.type = deptype
+        self.origin = origin
+        
+        
 class DependencyScanner(object):
     """
     target (str, module)
@@ -21,6 +30,8 @@ class DependencyScanner(object):
         self._target = target
         self.builtins = {}
         self.dependencies = {}
+        self.libs = {}
+        self.deps = []
     
     @property
     def target(self):
@@ -30,12 +41,19 @@ class DependencyScanner(object):
             return self._target.__file__
         else:
             try:
+                oldstdout = sys.stdout
+                oldstderr = sys.stderr
+                sys.stdout = None
+                sys.stderr = None
                 mod = __import__(self._target)
                 return mod.__file__
             except ImportError:
                 raise
             except AttributeError:
                 return '-c import {}'.format(self._target)
+            finally:
+                sys.stdout = oldstdout
+                sys.stderr = oldstderr
     
     def scan(self):
         stdout=open(tempfile.NamedTemporaryFile().name,'wb')
@@ -58,12 +76,21 @@ class DependencyScanner(object):
                 #line = stderr.readline()
                 if line.startswith('import'):
                     #print(line.strip())
-                    item, origin = line.strip().split(' ',1)[1].split('#')
+                    _name, pedigree = line.strip().split(' ',1)[1].split('#')
+                    dep = Dependency(_name.strip())
                     #print('{:40}    {}'.format(item, origin))
-                    if 'builtin' in origin:
-                        self.builtins[item] = origin
+                    
+                    pedigree = pedigree.split('from')
+                    dep.type = pedigree[0].strip()
+                    if len(pedigree)>1:
+                        dep.origin = pedigree[1].strip()
+
+                    if dep.type and 'builtin' in dep.type:
+                        self.builtins[_name] = dep.origin
                     else:
-                        self.dependencies[item] = origin
+                        self.dependencies[_name] = dep.origin
+                    
+                    self.deps.append(dep)
 
 
 def print_title(name, width=80):
